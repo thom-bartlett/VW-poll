@@ -12,3 +12,8 @@ Slack Poll app with GUI poll builder interface
 - GUI poll builder interface
 - Anonymous of public options
 - Polls stored in cloud MongoDB
+
+
+![Slack-Poll-1](Slack-Poll-1.png)
+
+![Slack-Poll-2](Slack-Poll-2.png)
