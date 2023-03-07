@@ -1,4 +1,4 @@
-slackbolt
+slack_bolt
 slack_sdk.errors
 num2words
 pymongo
