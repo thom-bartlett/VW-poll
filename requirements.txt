@@ -1,0 +1,2 @@
+slackbolt
+slack_sdk.errors
