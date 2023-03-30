@@ -1,124 +1,45 @@
+# https://cloud.google.com/functions/docs/first-python
 
-from cgitb import text
-import os
-from slack_bolt import App
-from slack_sdk.errors import SlackApiError
 import logging
+import os
 import json
-from collections import Counter
+from slack_bolt import App
 from num2words import num2words
 from pymongo import MongoClient
+from slack_sdk.errors import SlackApiError
+import copy
 
-#To do
+app = App(process_before_response=True)
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
-# Initializes your app with your bot token and signing secret
-app = App(
-    token=os.environ.get("SLACK_BOT_TOKEN"),
-    signing_secret=os.environ.get("SLACK_SIGNING_SECRET")
-)
-
-# Send initial modal
-@app.shortcut("poll")
-def open_modal(ack, shortcut, client):
-    # Acknowledge the shortcut request
-    ack()
-    # ask for number of poll questions
-    client.views_open(
-        trigger_id=shortcut["trigger_id"],
-        view={
-            "type": "modal",
-            "callback_id": "poll",
-            "title": {"type": "plain_text", "text": "Create a Poll"},
-            "blocks": [
-                {
-                    "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Poll Creation Wizard",
-                        "emoji": True
-                    }
-                },
-                {
-                    "dispatch_action": True,
-                    "type": "input",
-                    "block_id": "questions",
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "pollquestions"
-                    },
-                    "label": {
-                        "type": "plain_text",
-                        "text": "How many questions/options in your poll?",
-                        "emoji": True
-			}
-		}
-	        ]     
-        }
-    )
-# Update Poll building Modal with questions
-@app.action("pollquestions")
-def handle_view_events(ack, body, logger, client):
-    # Acknowledge the shortcut request
-    ack()
-    questions = body["view"]["state"]["values"]["questions"]["pollquestions"]["value"]
-    viewtoupdate = body["view"]["id"]
-    # create title block
-    blocks = [
-        {
-            "type": "input",
-            "block_id": "question",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "plain_text_input-action"
-            },
-            "label": {
-                "type": "plain_text",
-                "text": "Enter Poll Question",
-                "emoji": True
-            }
-        },
-        # create anonymous section
-        {   
-			"type": "input",
-            "block_id": "anonymous",
-			"element": {
-				"type": "radio_buttons",
-				"options": [
-					{
-						"text": {
-							"type": "plain_text",
-							"text": "Yes",
-							"emoji": True
-						},
-						"value": "value-0"
-					},
-					{
-						"text": {
-							"type": "plain_text",
-							"text": "No",
-							"emoji": True
-						},
-						"value": "value-1"
-					}
-				],
-				"action_id": "radio_buttons-action"
-			},
-			"label": {
-				"type": "plain_text",
-				"text": "Anonymous?",
-				"emoji": True
-			}
-		},
-        {
+creation_View = {
+	"callback_id": "poll_view",
+	"type": "modal",
+	"title": {
+		"type": "plain_text",
+		"text": "My App",
+		"emoji": True
+	},
+	"submit": {
+		"type": "plain_text",
+		"text": "Submit",
+		"emoji": True
+	},
+	"close": {
+		"type": "plain_text",
+		"text": "Cancel",
+		"emoji": True
+	},
+	"blocks": [
+		{
 			"block_id": "channel",
 			"type": "input",
 			"optional": True,
 			"label": {
 				"type": "plain_text",
-				"text": "Select a channel to post the survey in"
+				"text": "Select a channel to post the survey in:"
 			},
 			"element": {
 				"action_id": "channel",
@@ -126,61 +47,200 @@ def handle_view_events(ack, body, logger, client):
 				"response_url_enabled": True,
 				"default_to_current_conversation": True
 			}
+		},
+		{
+			"block_id": "question",
+			"type": "input",
+			"element": {
+				"type": "plain_text_input",
+				"action_id": "plain_text_input-action"
+			},
+			"label": {
+				"type": "plain_text",
+				"text": "Question or Topic:",
+				"emoji": True
+			}
+		},
+		{
+			"block_id": "votes-allowed",
+			"type": "input",
+			"element": {
+				"type": "static_select",
+				"placeholder": {
+					"type": "plain_text",
+					"text": "Select an item",
+					"emoji": True
+				},
+				"options": [
+					{
+						"text": {
+							"type": "plain_text",
+							"text": "Select multiple options",
+							"emoji": True
+						},
+						"value": "one-vote"
+					},
+					{
+						"text": {
+							"type": "plain_text",
+							"text": "Select one option",
+							"emoji": True
+						},
+						"value": "multiple-votes"
+					}
+				],
+				"action_id": "votes-allowed-action"
+			},
+			"label": {
+				"type": "plain_text",
+				"text": "How do you want people to respond?",
+				"emoji": True
+			}
+		},
+		{
+			"block_id": "option-1",
+			"type": "input",
+			"element": {
+				"type": "plain_text_input",
+				"action_id": "plain_text_input-action"
+			},
+			"label": {
+				"type": "plain_text",
+				"text": "Option 1",
+				"emoji": True
+			}
+		},
+		{
+			"block_id": "option-2",
+			"type": "input",
+			"optional": True,
+			"element": {
+				"type": "plain_text_input",
+				"action_id": "plain_text_input-action"
+			},
+			"label": {
+				"type": "plain_text",
+				"text": "Option 2",
+				"emoji": True
+			}
+		},
+		{
+			"block_id": "add-option",
+			"type": "actions",
+			"elements": [
+				{
+					"type": "button",
+					"text": {
+						"type": "plain_text",
+						"text": "Add another option",
+						"emoji": True
+					},
+					"value": "add-option-button",
+					"action_id": "add-option-action"
+				}
+			]
+		},
+		{
+			"block_id": "visibility",
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "*Settings*"
+			},
+			"accessory": {
+				"type": "checkboxes",
+				"options": [
+					{
+						"text": {
+							"type": "mrkdwn",
+							"text": "Make responses anonymous"
+						},
+						"value": "visibility-value"
+					}
+				],
+				"action_id": "visibility-action"
+			}
 		}
-    ]
-    print (blocks)
-    # build questions section
-    for i in range(int(questions)):
-        question_Builder = [{
-            "type": "input",
-            "block_id": f"option{i}",
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "plain_text_input-action"
-            },
-            "label": {
-                "type": "plain_text",
-                "text": f"Enter Option {i+1}",
-                "emoji": True
-            }
-        }]
-        blocks = blocks + question_Builder
-    blocks = json.dumps(blocks)
-    client.views_update(
-        view_id = viewtoupdate,
-        trigger_id=body["trigger_id"],
-        view={
-            "type": "modal",
-            "callback_id": "poll",
-            "submit": {
-                "type": "plain_text",
-                "text": "Submit",
-            },
-            "title": {"type": "plain_text", "text": "Create a Poll"},
-            "close": {"type": "plain_text", "text": "Close"},
-            "blocks": blocks
-        }
+	]
+}
+
+# Slack Shortcut activated - send modal view
+@app.shortcut("poll")
+def open_modal(ack, shortcut, client):
+    # Acknowledge the shortcut request
+    ack()
+    # Send initial view
+    client.views_open(
+        trigger_id=shortcut["trigger_id"],
+        view=creation_View
     )
 
-# send formatted survey to channel
-@app.view("poll")
-def handle_view_events(ack, body, logger, client):
+# Another option was added to poll creation view - update and respond
+@app.action("add-option-action")
+def update_modal(ack, body, client):
     ack()
-    questions = body["view"]["state"]["values"]
+    view_Length = len(body["view"]["blocks"])
+    insert_Index = view_Length - 2
+    new_Option = (view_Length // 2) - 1
+    new_Blocks = [
+        {
+			"block_id": f"option-{new_Option}",
+			"type": "input",
+			"element": {
+				"type": "plain_text_input",
+				"action_id": "plain_text_input-action"
+			},
+			"label": {
+				"type": "plain_text",
+				"text": f"Option {new_Option}",
+				"emoji": True
+			}
+		},
+		{
+			"type": "section",
+			"block_id": f"vote-{new_Option}",
+			"text": {
+				"type": "plain_text",
+				"text": " ",
+				"emoji": True
+			}
+		}
+    ]
+    new_View = copy.deepcopy(creation_View)
+    new_View["blocks"][insert_Index:insert_Index] = new_Blocks
+    client.views_update(
+        view_id = body["view"]["id"],
+        hash = body["view"]["hash"],
+        view = new_View
+    )
+
+# Accept the submitted poll and convert to a Slack block format
+@app.view("poll_view")
+def handle_view_events(ack, body, logger, client):
     mongoclient = MongoClient("mongodb+srv://unfo33:peaches123@cluster0.deaag.mongodb.net/?retryWrites=true&w=majority")
-    title = body["view"]["state"]["values"]["question"]["plain_text_input-action"]["value"]
-    anonymous = questions["anonymous"]["radio_buttons-action"]["selected_option"]["text"]["text"]
-    channel = questions["channel"]["channel"]["selected_conversation"]
+    body_json = json.dumps(body)
+    logger.info(body_json)
+    ack()
+    # collect values
+    state_values = body["view"]["state"]["values"]
+    channel = state_values["channel"]["channel"]["selected_conversation"]
+    question = state_values["question"]["plain_text_input-action"]["value"]
+    votes_allowed = state_values["votes-allowed"]["votes-allowed-action"]["selected_option"]["text"]["text"]
+    visibility = state_values["visibility"]["visibility-action"]["selected_options"]
     submitter = body["user"]["id"]
+    # options = []
+    # for key, value in state_values.items():
+    #     if "option" in key:
+    #         options.append(value)
+    # craft message
     blocks = []
     title_block=[
         {
-            "type": "header",
-            "block_id": "title",
+            "type": "section",
+            "block_id": "question",
             "text": {
-                "type": "plain_text",
-                "text": f"{title}",
-                "emoji": True
+                "type": "mrkdwn",
+                "text": f"*{question}*",
             }
         }
     ]
@@ -199,24 +259,24 @@ def handle_view_events(ack, body, logger, client):
     ]
     index = 1
     text_Values = {}
-    if anonymous == "Yes":
+    if visibility:
         blocks = blocks + anonymous_block + title_block
     else:
         blocks = blocks + title_block
-    for question in questions:
-        if question == "question" or question == "anonymous" or question == "channel":
+    for key, value in state_values.items():
+        if "option" not in key:
             pass
         else:
             written_Number = num2words(index)
-            option = questions[question]["plain_text_input-action"]["value"]
-            block_id = question
+            option = value["plain_text_input-action"]["value"]
+            block_id = key
             question_Builder = [
                 {
                     "type": "section",
-                    "block_id": f":{written_Number}: {block_id}",
+                    "block_id": block_id,
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"{option}",
+                        "text": f":{written_Number}: {option}",
                     },
                     "accessory": {
                         "type": "button",
@@ -230,7 +290,7 @@ def handle_view_events(ack, body, logger, client):
                     }
                 }]
             index +=1
-            text_Values.update({block_id: option})
+            text_Values.update({block_id: f":{written_Number}: {option}"})
             blocks = blocks + question_Builder
     final_block = [{
 			"type": "context",
@@ -243,32 +303,40 @@ def handle_view_events(ack, body, logger, client):
 		}]
     blocks = blocks + final_block
     blocks = json.dumps(blocks)
-    db = mongoclient.poll
+    logger.info(f"Finaly message blocks to be sent to channel: {blocks}")
+    db = mongoclient.Poll
     try:
         result = client.chat_postMessage(
             channel=channel, 
             blocks=blocks
         )
         time = result["message"]["ts"]
+        time = result["message"]["ts"]
         db[time].insert_one(text_Values)
-        db[time].insert_one({"anonymous": anonymous})
+        db[time].insert_one({"anonymous": visibility})
+        db[time].insert_one({"votes_allowed": votes_allowed})
         return time
     except SlackApiError as e:
         logger.exception(f"Error posting message error: {e}")
 
 def store_Vote(body, client):
     logger.info("storing vote")
-    db=client.poll
+    db=client.Poll
     ts = body["message"]["ts"]
     voter = body["user"]["id"]
     vote = body["actions"][0]["value"]
     document = db[ts].find_one({"id": voter})
-    # determine if poll already created in db
+    votes_allowed = db[ts].find_one({"votes_allowed": "Select multiple options"})
+    # Check if user previously voted
     if document:
-        oldvote = document["vote"]
-        # determine if person already voted
-        if oldvote == vote:
-            db[ts].delete_one({"id": voter})
+        # Check more specifically if they voted for the same thing
+        specific_document = db[ts].find_one({"id": voter, "vote": vote})
+        # If they are voting for the same thing as previously just delete
+        if specific_document:
+            db[ts].delete_one({"id": voter, "vote": vote})
+        elif votes_allowed:
+            db[ts].insert_one({"id": voter, "vote": vote})
+        # if they are voting for something different delete and add
         else:
             db[ts].delete_one({"id": voter})
             db[ts].insert_one({"id": voter, "vote": vote})
@@ -277,21 +345,19 @@ def store_Vote(body, client):
 
 def retrieve_Vote(client, body):
     logger.info("retrieving vote")
-    db=client.poll
+    db=client.Poll
     blocks = body["message"]["blocks"]
     ts = body["message"]["ts"]
     document = db[ts].find({})
     channel = body["channel"]["id"]
-    print ("channel")
     # check if anonymous - shouldn't there be any easier way to query the db?
     for i in document:
         if "anonymous" in i:
             anonymous = i["anonymous"]
     # rebuild message for Slack channel
     for block in blocks:
-        print (block)
         # skip first section which doesn't change
-        if block["type"] != "section":
+        if "option" not in block["block_id"]:
             pass
         else:
             count_Cursor = db[ts].find({"vote": block["block_id"]})
@@ -299,9 +365,10 @@ def retrieve_Vote(client, body):
             document = db[ts].find({})
             count = len(list(count_Cursor))
             text = document[0][block["block_id"]]
+            logger.info(block)
             user_list = []
             user_list_Pretty = []
-            if anonymous == "No":
+            if not anonymous:
                 # logic to grab all users who voted
                 for i in document:
                     if "id" in i:
@@ -323,15 +390,42 @@ def retrieve_Vote(client, body):
         logger.exception(f"Failed to update message error: {e}")
 
 
-# action taken when someone votes
+# receive a vote and do the needful
 @app.action("vote")
 def handle_some_action(ack, body, logger):
     ack()
+    body_json = json.dumps(body)
+    logger.info(body_json)
     dbpass = os.environ.get("DB_PASS")
     client = MongoClient(f"mongodb+srv://unfo33:{dbpass}@cluster0.deaag.mongodb.net/?retryWrites=true&w=majority")
     store_Vote(body, client)
     retrieve_Vote(client, body)
+    
+    
 
-# Start your app
-if __name__ == "__main__":
-    app.start(3000)
+        
+            
+            
+    
+
+
+# Flask adapter
+from slack_bolt.adapter.google_cloud_functions import SlackRequestHandler
+from flask import Request
+
+
+handler = SlackRequestHandler(app)
+
+
+# Cloud Function
+def hello_bolt_app(req: Request):
+    """HTTP Cloud Function.
+    Args:
+        req (flask.Request): The request object.
+        <https://flask.palletsprojects.com/en/1.1.x/api/#incoming-request-data>
+    Returns:
+        The response text, or any set of values that can be turned into a
+        Response object using `make_response`
+        <https://flask.palletsprojects.com/en/1.1.x/api/#flask.make_response>.
+    """
+    return handler.handle(req)
