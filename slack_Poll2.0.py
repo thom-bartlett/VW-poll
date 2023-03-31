@@ -179,11 +179,12 @@ def open_modal(ack, shortcut, client):
 @app.action("add-option-action")
 def update_modal(ack, body, client):
     ack()
+    body_json = json.dumps(body)
+    logger.info(body_json)
     view_Length = len(body["view"]["blocks"])
     insert_Index = view_Length - 2
-    new_Option = (view_Length // 2) - 1
-    new_Blocks = [
-        {
+    new_Option = (view_Length - 4)
+    type_Blocks ={
 			"block_id": f"option-{new_Option}",
 			"type": "input",
 			"element": {
@@ -195,23 +196,17 @@ def update_modal(ack, body, client):
 				"text": f"Option {new_Option}",
 				"emoji": True
 			}
-		},
-		{
-			"type": "section",
-			"block_id": f"vote-{new_Option}",
-			"text": {
-				"type": "plain_text",
-				"text": " ",
-				"emoji": True
-			}
 		}
-    ]
+    new_Blocks = body["view"]["blocks"]
+    new_Blocks.insert(insert_Index, type_Blocks)
     new_View = copy.deepcopy(creation_View)
-    new_View["blocks"][insert_Index:insert_Index] = new_Blocks
+    new_View["blocks"] = new_Blocks
+    new_View_json = json.dumps(new_View)
+    logger.info(new_View_json)
     client.views_update(
         view_id = body["view"]["id"],
         hash = body["view"]["hash"],
-        view = new_View
+        view = new_View_json
     )
 
 # Accept the submitted poll and convert to a Slack block format
@@ -255,14 +250,25 @@ def handle_view_events(ack, body, logger, client):
 				}
 			]
 		},
-
+    ]
+    options_block = [
+        {
+			"type": "context",
+			"elements": [
+				{
+					"type": "plain_text",
+					"text": votes_allowed,
+					"emoji": True
+				}
+			]
+		},
     ]
     index = 1
     text_Values = {}
     if visibility:
-        blocks = blocks + anonymous_block + title_block
+        blocks = blocks + anonymous_block + title_block + options_block
     else:
-        blocks = blocks + title_block
+        blocks = blocks + title_block + options_block
     for key, value in state_values.items():
         if "option" not in key:
             pass
