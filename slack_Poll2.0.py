@@ -174,6 +174,11 @@ def open_modal(ack, shortcut, client):
         trigger_id=shortcut["trigger_id"],
         view=creation_View
     )
+    
+@app.action("visibility-action")
+def handle_visibility(ack, body, logger):
+    ack()
+    logger.info(body)
 
 # Another option was added to poll creation view - update and respond
 @app.action("add-option-action")
@@ -212,7 +217,8 @@ def update_modal(ack, body, client):
 # Accept the submitted poll and convert to a Slack block format
 @app.view("poll_view")
 def handle_view_events(ack, body, logger, client):
-    mongoclient = MongoClient("mongodb+srv://unfo33:peaches123@cluster0.deaag.mongodb.net/?retryWrites=true&w=majority")
+    dbpass = os.environ.get("DB_PASS")
+    mongoclient = MongoClient(f"mongodb+srv://unfo33:{dbpass}@cluster0.deaag.mongodb.net/?retryWrites=true&w=majority")
     body_json = json.dumps(body)
     logger.info(body_json)
     ack()

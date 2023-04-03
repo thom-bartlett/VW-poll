@@ -12,6 +12,7 @@ Slack Poll app with GUI poll builder interface
 - GUI poll builder interface
 - Anonymous or public options
 - Polls stored in cloud MongoDB
+- Abilitiy to vote for one or multiple options
 
 # Improvement Ideas
 - Ability to edit polls
@@ -19,7 +20,4 @@ Slack Poll app with GUI poll builder interface
 - User ability to add options to existing poll
 - Limited time poll 
 
-
 ![Slack-Poll-1](Slack-Poll-1.png)
-
-![Slack-Poll-2](Slack-Poll-2.png)
